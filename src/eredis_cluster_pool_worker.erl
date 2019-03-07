@@ -14,6 +14,8 @@
 -export([terminate/2]).
 -export([code_change/3]).
 
+-define(TIMEOUT, 1000).
+
 -record(state, {conn}).
 
 start_link(Args) ->
@@ -27,7 +29,6 @@ init(Args) ->
 
     process_flag(trap_exit, true),
     Result = eredis:start_link(Hostname,Port, DataBase, Password),
-    process_flag(trap_exit, false),
 
     Conn = case Result of
         {ok,Connection} ->
@@ -43,17 +44,34 @@ query(Worker, Commands) ->
 
 handle_call({'query', _}, _From, #state{conn = undefined} = State) ->
     {reply, {error, no_connection}, State};
+
+%% Timeout is necessary.
 handle_call({'query', [[X|_]|_] = Commands}, _From, #state{conn = Conn} = State)
     when is_list(X); is_binary(X) ->
-    {reply, eredis:qp(Conn, Commands), State};
+    case catch eredis:qp(Conn, Commands, ?TIMEOUT) of
+        {'EXIT', Reason} ->
+            {reply, {error, timeout}, State};
+        Return ->
+            {reply, Return, State}
+    end;
 handle_call({'query', Command}, _From, #state{conn = Conn} = State) ->
-    {reply, eredis:q(Conn, Command), State};
+    case catch eredis:q(Conn, Command, ?TIMEOUT) of
+        {'EXIT', Reason} ->
+            {reply, {error, timeout}, State};
+        Return ->
+            {reply, Return, State}
+    end;
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
+%% When a eredis_client loses connection with redis, the socket 
+%% will be reset to 'undefined', and client will crash with any query.
+%% 
+handle_info({'EXIT', _Client, _Reason}, State) ->
+    {stop, shutdown, State};
 handle_info(_Info, State) ->
     {noreply, State}.
 
