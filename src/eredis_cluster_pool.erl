@@ -2,7 +2,7 @@
 -behaviour(supervisor).
 
 %% API.
--export([create/2]).
+-export([create/1, create/2]).
 -export([stop/1]).
 -export([transaction/2]).
 
@@ -12,23 +12,25 @@
 
 -include("eredis_cluster.hrl").
 
--spec create(Host::string(), Port::integer()) ->
+-spec create(Node :: #node{}) ->
     {ok, PoolName::atom()} | {error, PoolName::atom()}.
-create(Host, Port) ->
-	PoolName = get_name(Host, Port),
+create(Node) ->
+    create(get_name(Node#node.address, Node#node.port), Node).
 
+-spec create(PoolName :: atom(), Node :: #node{}) ->
+    {ok, PoolName::atom()} | {error, PoolName::atom()}.
+create(PoolName, #node{address = Host,
+                       port = Port,
+                       password = Password,
+                       reconnect_sleep = ReconnectSleep,
+                       size = Size,
+                       max_overflow = MaxOverflow}) ->
     case whereis(PoolName) of
         undefined ->
-            DataBase = application:get_env(eredis_cluster, database, 0),
-            Password = application:get_env(eredis_cluster, password, ""),
-            WorkerArgs = [{host, Host},
-                          {port, Port},
-                          {database, DataBase},
-                          {password, Password}
-                         ],
-
-        	Size = application:get_env(eredis_cluster, pool_size, 10),
-        	MaxOverflow = application:get_env(eredis_cluster, pool_max_overflow, 0),
+            %% SELECT is not allowed in cluster mode.
+            %% Only database num 0 is available.
+            DataBase = 0,
+            WorkerArgs = [Host, Port, DataBase, Password, ReconnectSleep],
 
             PoolArgs = [{name, {local, PoolName}},
                         {worker_module, eredis_cluster_pool_worker},

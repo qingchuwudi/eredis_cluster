@@ -14,10 +14,16 @@
     | {error, redis_error_result()}.
 -type redis_result() :: redis_simple_result() | redis_pipeline_result().
 
+-type reconnect_sleep() :: no_reconnect | non_neg_integer().
+
 -record(node, {
     address :: string(),
     port :: integer(),
-    pool :: atom()
+    password :: string(),
+    reconnect_sleep :: reconnect_sleep(),
+    pool :: atom(),
+    size :: non_neg_integer(),
+    max_overflow :: non_neg_integer()
 }).
 
 -record(slots_map, {
@@ -32,7 +38,8 @@
 -define(REDIS_CLUSTER_REQUEST_TTL, 16).
 -define(REDIS_RETRY_DELAY, 100).
 
--define(CRCDEF, <<16#00,16#00,16#10,16#21,16#20,16#42,16#30,16#63,
+-define(CRCDEF, <<
+16#00,16#00,16#10,16#21,16#20,16#42,16#30,16#63,
 16#40,16#84,16#50,16#a5,16#60,16#c6,16#70,16#e7,
 16#81,16#08,16#91,16#29,16#a1,16#4a,16#b1,16#6b,
 16#c1,16#8c,16#d1,16#ad,16#e1,16#ce,16#f1,16#ef,
