@@ -14,14 +14,11 @@
     | {error, redis_error_result()}.
 -type redis_result() :: redis_simple_result() | redis_pipeline_result().
 
--type reconnect_sleep() :: no_reconnect | non_neg_integer().
-
 -record(node, {
     address :: string(),
     port :: integer(),
     password :: string(),
-    reconnect_sleep :: reconnect_sleep(),
-    pool :: atom(),
+    cluster_name :: atom(),
     size :: non_neg_integer(),
     max_overflow :: non_neg_integer()
 }).
@@ -30,7 +27,18 @@
     start_slot :: integer(),
     end_slot :: integer(),
     index :: integer(),
-    node :: #node{}
+    node :: #node{},
+    id :: binary(),
+    pool :: atom(),
+    pid :: pid()
+}).
+
+-record(cluster, {
+    cluster_name :: atom(),
+    init_nodes :: [#node{}],
+    slots_maps :: list(), %% whose elements are #slots_map{}
+    version :: integer(),
+    tref :: reference()
 }).
 
 -define(REDIS_CLUSTER_HASH_SLOTS, 16384).

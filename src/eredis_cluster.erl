@@ -6,7 +6,9 @@
 -export([stop/1]).
 
 % API.
--export([start/0, stop/0, connect/2]). % Application Management.
+-export([start/0, stop/0, connect/1, connect/2]). % Application Management.
+
+-export([start_link/1]). % poolboy eredis worker start_link/1 function
 
 % Generic redis call
 -export([q/2, qp/2, qw/2, qk/3, qa/2, qmn/2, transaction/2, transaction/3]).
@@ -20,7 +22,22 @@
 -export([optimistic_locking_transaction/4]).
 -export([eval/5]).
 
+-export_type([cluster_options/0, cluster_option/0, node_opts/0, node_opt/0]).
+
 -include("eredis_cluster.hrl").
+
+-type cluster_options() :: [cluster_option()].
+
+-type cluster_option() :: {cluster_name, atom()} |
+                          {nodes, node_opts()} |
+                          {password, string()} |
+                          {size, non_neg_integer()} |
+                          {max_overflow, non_neg_integer()}.
+
+-type node_opts() :: [node_opt()].
+
+-type node_opt() :: {host, string()} |
+                    {port, non_neg_integer()}.
 
 -spec start(StartType::application:start_type(), StartArgs::term()) ->
     {ok, pid()}.
@@ -39,14 +56,36 @@ start() ->
 stop() ->
     application:stop(?MODULE).
 
+start_link([Host, Port, Password]) ->
+    %% SELECT is not allowed in cluster mode.
+    %% Only database num 0 is available.
+    eredis:start_link(Host, Port, 0, Password, no_reconnect).
+
 %% =============================================================================
 %% @doc Connect to a set of init node, useful if the cluster configuration is
 %% not known at startup
 %% @end
 %% =============================================================================
--spec connect(ClusterName :: atom(), InitServers :: proplists:proplist()) -> Result::term().
-connect(ClusterName, InitServers) ->
-    eredis_cluster_monitor:connect(ClusterName, InitServers).
+-spec connect(Options) -> Result when
+        Options :: cluster_options(),
+        Result :: ok | {error, term()}.
+connect(Options) ->
+    case proplists:get_value(cluster_name, Options) of
+        undefined ->
+            {error, "lack of cluster_name"};
+        ClusterName when is_atom(ClusterName) ->
+            ok = eredis_cluster_monitor:connect(Options);
+        _ ->
+            {error, "cluster_name type error"}
+    end.
+
+-spec connect(ClusterName, Options) -> Result when
+        ClusterName :: atom(),
+        Options :: cluster_options(),
+        Result :: ok | {error, term()}.
+connect(ClusterName, Options) ->
+    Options1 = proplists:delete(cluster_name, Options),
+    connect([{cluster_name, ClusterName} | Options1]).
 
 %% =============================================================================
 %% @doc Wrapper function to execute a pipeline command as a transaction Command
@@ -194,7 +233,7 @@ handle_transaction_result(ClusterName, Result, Version) ->
        % If we detect a node went down, we should probably refresh the slot
         % mapping.
         {error, no_connection} ->
-            eredis_cluster_monitor:refresh_mapping(ClusterName, Version),
+            eredis_cluster_pool:reconnect(ClusterName, Version),
             retry;
 
         % If the tcp connection is closed (connection timeout), the redis worker
@@ -207,7 +246,7 @@ handle_transaction_result(ClusterName, Result, Version) ->
         % Redis explicitly say our slot mapping is incorrect, we need to refresh
         % it
         {error, <<"MOVED ", _/binary>>} ->
-            eredis_cluster_monitor:refresh_mapping(ClusterName, Version),
+            eredis_cluster_pool:reconnect(ClusterName, Version),
             retry;
 
         Payload ->
@@ -223,7 +262,7 @@ handle_transaction_result(ClusterName, Result, Version, check_pipeline_result) -
            case lists:any(Pred, Payload) of
                false -> Payload;
                true ->
-                   eredis_cluster_monitor:refresh_mapping(ClusterName, Version),
+                   eredis_cluster_pool:reconnect(ClusterName, Version),
                    retry
            end;
        Payload -> Payload
