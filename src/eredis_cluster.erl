@@ -361,15 +361,16 @@ eval(ClusterName, Script, ScriptHash, Keys, Args) ->
         KeyNb == 0 -> "A"; %Random key
         true -> hd(Keys)
     end,
-
     case qk(ClusterName, EvalShaCommand, Key) of
         {error, <<"NOSCRIPT", _/binary>>} ->
             LoadCommand = ["SCRIPT", "LOAD", Script],
-            [_, Result] = qk(ClusterName, [LoadCommand, EvalShaCommand], Key),
+            EvalShaCommand2 = [LoadCommand, EvalShaCommand],
+            [_, Result] = qk(ClusterName, EvalShaCommand2, Key),
             Result;
         Result ->
             Result
     end.
+
 
 %% =============================================================================
 %% @doc Perform a given query on all node of a redis cluster
@@ -387,6 +388,8 @@ qa(ClusterName, Command) ->
 %% @end
 %% =============================================================================
 -spec qw(Worker::pid(), redis_command()) -> redis_result().
+qw(Worker, [[X|_]|_] = Command) when is_list(X); is_binary(X) ->
+    eredis:qp(Worker, Command);
 qw(Worker, Command) ->
     eredis:q(Worker, Command).
 
